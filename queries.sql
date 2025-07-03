@@ -44,3 +44,48 @@ SELECT application_id, line_item_type AS line_item_name, start AS first_value, f
 FROM funded
 ORDER BY factor DESC
 LIMIT 1;
+
+----------------------------------------------------------
+
+WITH item_first AS (
+    SELECT 
+        application_id,
+        line_item_type,
+        amount AS first_value
+    FROM (
+        SELECT *,
+               ROW_NUMBER() OVER (PARTITION BY application_id, line_item_type ORDER BY updated_at ASC) AS rn
+        FROM closing_cost_line_item
+    ) sub
+    WHERE rn = 1
+),
+item_last AS (
+    SELECT 
+        application_id,
+        line_item_type,
+        amount AS last_value
+    FROM (
+        SELECT *,
+               ROW_NUMBER() OVER (PARTITION BY application_id, line_item_type ORDER BY updated_at DESC) AS rn
+        FROM closing_cost_line_item
+    ) sub
+    WHERE rn = 1
+)
+SELECT 
+    f.application_id,
+    f.line_item_type,
+    ROUND(f.first_value, 2) AS first_value,
+    ROUND(l.last_value, 2) AS last_value,
+    ROUND(l.last_value / NULLIF(f.first_value, 0), 2) AS factor_increase
+FROM 
+    item_first f
+JOIN 
+    item_last l ON f.application_id = l.application_id AND f.line_item_type = l.line_item_type
+JOIN 
+    application a ON f.application_id = a.application_id
+WHERE 
+    a.funded_at IS NOT NULL
+    AND l.last_value / NULLIF(f.first_value, 0) > 15
+ORDER BY 
+    factor_increase DESC
+LIMIT 1;
